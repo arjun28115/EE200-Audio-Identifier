@@ -116,7 +116,7 @@ else:
                     
                     with col1:
                         fig1, ax1 = plt.subplots(figsize=(8, 4))
-                        ax1.pcolormesh(Sxx_db, shading='gouraud', cmap='inferno')
+                        ax1.imshow(Sxx_db, aspect='auto', origin='lower', cmap='inferno', interpolation='nearest')
                         ax1.scatter(t_idx, f_idx, c='cyan', s=10, edgecolors='black', label='Constellation Peaks')
                         ax1.set_title('Spectrogram & Constellation')
                         ax1.set_ylabel('Frequency Bins')
