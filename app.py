@@ -127,7 +127,7 @@ else:
                             winning_offsets = all_tallies[predicted_song]
                             ax2.bar(list(winning_offsets.keys()), list(winning_offsets.values()), color='springgreen')
                             ax2.set_title(f'Offset Histogram for "{predicted_song}"')
-                            ax2.set_xlabel('Time Offset ($\Delta t$)')
+                            ax2.set_xlabel(r'Time Offset ($\Delta t$)')
                             ax2.set_ylabel('Number of Matches')
                         st.pyplot(fig2)
                 finally:
