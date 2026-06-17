@@ -177,11 +177,13 @@ if __name__ == "__main__":
 
     # --- 2. LOAD OR BUILD DATABASE ---
     # If the .pkl file doesn't exist, build it. Otherwise, load it.
-    if not os.path.exists(db_file):
-        song_db = build_database(dataset_folder, db_file)
+    # ONLY load the database, never try to build it on the cloud!
+    song_db = load_database("song_database.pkl")
+    
+    if not song_db:
+        st.error("⚠️ Database not found! Please ensure 'song_database.pkl' is uploaded to GitHub.")
     else:
-        print("Loading existing database...")
-        song_db = load_database(db_file)
+        # ... [The rest of your Streamlit tab1/tab2 UI code goes here]
 
     # --- 3. TEST MATCHING ---
     if song_db and os.path.exists(query_path):
