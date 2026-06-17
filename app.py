@@ -2,6 +2,8 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 import librosa
+import matplotlib
+matplotlib.use('Agg') # Forces headless rendering for cloud servers
 from scipy import signal
 from scipy.ndimage import maximum_filter
 from collections import defaultdict
