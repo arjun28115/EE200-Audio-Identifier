@@ -180,10 +180,13 @@ if __name__ == "__main__":
     # ONLY load the database, never try to build it on the cloud!
     song_db = load_database("song_database.pkl")
     
-    if not song_db:
-        st.error("⚠️ Database not found! Please ensure 'song_database.pkl' is uploaded to GitHub.")
-    else:
-        # ... [The rest of your Streamlit tab1/tab2 UI code goes here]
+    # ONLY load the database, never try to build it on the cloud!
+song_db = load_database("song_database.pkl")
+
+if not song_db:
+    st.error("⚠️ Database not found! Please ensure 'song_database.pkl' is uploaded to GitHub.")
+else:
+    # ... [The rest of your Streamlit tab1/tab2 UI code goes here]
 
     # --- 3. TEST MATCHING ---
     if song_db and os.path.exists(query_path):
