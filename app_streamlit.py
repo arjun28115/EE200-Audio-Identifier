@@ -422,6 +422,116 @@ def get_song_thumbnail_data(song_name):
     except Exception:
         return None, 0, 0.0
 
+
+# DEEP-DIVE HELPER: reconstruct a per-song fingerprint profile straight from the
+# database (works even when the raw audio file is not deployed).
+@st.cache_data(show_spinner=False)
+def build_song_index():
+    """Map each song -> array of [anchor_freq, target_freq, dt, anchor_time]."""
+    idx = defaultdict(list)
+    for hashkey, matches in database.items():
+        anchor_freq, target_freq, dt = hashkey
+        for song, t_song in matches:
+            idx[song].append((anchor_freq, target_freq, dt, t_song))
+    return {s: np.array(v) for s, v in idx.items()}
+
+
+def render_song_deep_dive(song):
+    """Render a full analytical breakdown for a single indexed track."""
+    song_idx = build_song_index()
+    arr = song_idx.get(song)
+
+    st.markdown("---")
+    st.markdown(f"## 🎵 Track Deep Dive — <span style='color:#67E8F9;'>{song}</span>",
+                unsafe_allow_html=True)
+
+    if arr is None or len(arr) == 0:
+        st.warning("No fingerprint entries found for this track in the database.")
+        return
+
+    anchor_freq = arr[:, 0]
+    target_freq = arr[:, 1]
+    dt = arr[:, 2]
+    anchor_time = arr[:, 3]
+
+    span = anchor_time.max() - anchor_time.min() if len(anchor_time) else 0
+    # Each spectrogram frame ≈ (nperseg - noverlap)/fs seconds. The DB stores
+    # frame indices, so this gives a relative timeline (frames), not wall-clock.
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total Fingerprints", f"{len(arr):,}")
+    m2.metric("Unique Anchor Freqs", f"{len(np.unique(anchor_freq)):,}")
+    m3.metric("Timeline Span", f"{int(span):,} frames")
+    m4.metric("Avg Δt (fan-out)", f"{dt.mean():.2f}")
+
+    tab_c, tab_f, tab_dt, tab_tl, tab_audio = st.tabs([
+        "✨ Constellation", "🎚 Frequency Profile", "⏱ Δt Distribution",
+        "📈 Hash Timeline", "🎧 Audio Analysis"
+    ])
+
+    with tab_c:
+        st.caption("Anchor-point constellation reconstructed from stored hashes.")
+        step = max(1, len(arr) // 4000)
+        fig_c = go.Figure(go.Scattergl(
+            x=anchor_time[::step], y=anchor_freq[::step],
+            mode='markers',
+            marker=dict(size=4, color=anchor_freq[::step], colorscale='Viridis', opacity=0.8)
+        ))
+        fig_c.update_layout(autosize=True, height=380,
+                            xaxis_title="Time (frames)", yaxis_title="Anchor Frequency Bin")
+        theme_fig(fig_c)
+        st.plotly_chart(fig_c, use_container_width=True)
+
+    with tab_f:
+        st.caption("Distribution of anchor vs. target frequency bins.")
+        fig_f = go.Figure()
+        fig_f.add_trace(go.Histogram(x=anchor_freq, nbinsx=40, name="Anchor",
+                                     marker_color=ACCENT_CYAN, opacity=0.7))
+        fig_f.add_trace(go.Histogram(x=target_freq, nbinsx=40, name="Target",
+                                     marker_color=ACCENT_VIOLET, opacity=0.7))
+        fig_f.update_layout(autosize=True, height=380, barmode='overlay',
+                            xaxis_title="Frequency Bin", yaxis_title="Count")
+        theme_fig(fig_f)
+        st.plotly_chart(fig_f, use_container_width=True)
+
+    with tab_dt:
+        st.caption("Time-delta (Δt) between anchor and target peaks — the fan-out structure.")
+        fig_dt = px.histogram(x=dt, nbins=int(max(dt.max(), 1)) + 1,
+                              labels={'x': 'Δt (frames)', 'y': 'Count'})
+        fig_dt.update_traces(marker_color=ACCENT_AMBER)
+        fig_dt.update_layout(autosize=True, height=380)
+        theme_fig(fig_dt)
+        st.plotly_chart(fig_dt, use_container_width=True)
+
+    with tab_tl:
+        st.caption("Fingerprint density across the track timeline.")
+        fig_tl = px.histogram(x=anchor_time, nbins=80,
+                              labels={'x': 'Time (frames)', 'y': 'Fingerprints'})
+        fig_tl.update_traces(marker_color=ACCENT_MINT)
+        fig_tl.update_layout(autosize=True, height=380)
+        theme_fig(fig_tl)
+        st.plotly_chart(fig_tl, use_container_width=True)
+
+    with tab_audio:
+        fig_thumb, hash_count, duration = get_song_thumbnail_data(song)
+        if fig_thumb is not None:
+            st.caption(f"Live audio reconstruction · {duration:.1f}s · {hash_count:,} hashes")
+            file_path = os.path.join(SONG_FOLDER, f"{song}.wav")
+            if not os.path.exists(file_path):
+                file_path = os.path.join(SONG_FOLDER, f"{song}.mp3")
+            audio_a, fs_a = librosa.load(file_path, sr=None, mono=True)
+            _, _, S_a = generate_spectrogram(audio_a, fs_a)
+            step_t = max(1, S_a.shape[1] // 800)
+            step_f = max(1, S_a.shape[0] // 400)
+            fig_sp = px.imshow(S_a[::step_f, ::step_t], origin='lower', aspect='auto',
+                               color_continuous_scale='Viridis',
+                               labels={'x': 'Time Bin', 'y': 'Freq Bin', 'color': 'dB'})
+            fig_sp.update_layout(autosize=True, height=380)
+            theme_fig(fig_sp)
+            st.plotly_chart(fig_sp, use_container_width=True)
+        else:
+            st.info("🎧 Raw audio file not deployed for this track — the analysis above is "
+                    "reconstructed entirely from the fingerprint database.")
+
 # FEATURE 5 HELPER: Dynamic Pipeline Tracker
 def update_pipeline_tracker(placeholder, current_step, step_times):
     steps = [
@@ -579,15 +689,24 @@ elif page == "📊 Database Analytics":
         theme_fig(fig_pie)
         st.plotly_chart(fig_pie, use_container_width=True)
 
+    if 'selected_song' not in st.session_state:
+        st.session_state.selected_song = songs[0] if songs else None
+
     with col_chart2:
         st.markdown("### Indexed Track Library")
+        st.caption("Click a row to analyse that track.")
         df_songs = pd.DataFrame(songs, columns=["Track Name"])
-        df_songs.index += 1
-        st.dataframe(df_songs, use_container_width=True, height=300)
+        event = st.dataframe(
+            df_songs, use_container_width=True, height=300,
+            hide_index=True, on_select="rerun", selection_mode="single-row"
+        )
+        sel_rows = event.selection.rows if event and event.selection else []
+        if sel_rows:
+            st.session_state.selected_song = songs[sel_rows[0]]
 
     st.markdown("---")
     st.markdown("### Visual Database Index")
-    st.caption("Fingerprint thumbnails and metadata for currently indexed tracks.")
+    st.caption("Browse fingerprint thumbnails — click **Analyze** on any track for a full breakdown.")
 
     cols = st.columns(3)
     for i, song in enumerate(songs):
@@ -596,12 +715,19 @@ elif page == "📊 Database Analytics":
                 st.markdown(f"**{song}**")
                 fig, hash_count, duration = get_song_thumbnail_data(song)
                 if fig is not None:
-                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                    st.plotly_chart(fig, use_container_width=True,
+                                    config={'displayModeBar': False}, key=f"thumb_{i}")
                     c_a, c_b = st.columns(2)
                     c_a.caption(f"⏳ {duration:.1f}s")
                     c_b.caption(f"🔗 {hash_count:,} hashes")
                 else:
                     st.caption("Audio file unavailable for thumbnail rendering.")
+                if st.button("🔍 Analyze", key=f"analyze_{i}", use_container_width=True):
+                    st.session_state.selected_song = song
+
+    # Deep-dive analysis for the currently selected track
+    if st.session_state.selected_song:
+        render_song_deep_dive(st.session_state.selected_song)
 
 
 # ------------------------------------------
