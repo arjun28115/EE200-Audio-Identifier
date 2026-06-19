@@ -32,6 +32,11 @@ INK = "#E2E8F0"
 MUTED = "#94A3B8"
 COLORWAY = [ACCENT_CYAN, ACCENT_MINT, ACCENT_VIOLET, ACCENT_AMBER, ACCENT_ROSE]
 
+# Canonical analysis sample rate. The database is indexed at this rate and EVERY
+# query is resampled to it, so frequency-bin indices (and therefore hashes) line
+# up regardless of the uploaded file's native sample rate.
+SR = 22050
+
 # ---- Match-confidence thresholds (tune these to taste) ----
 # A clip is reported as "none" unless the winning track clears BOTH gates:
 MIN_ALIGNED_VOTES = 10   # min hashes that agree on a single time-offset
@@ -329,13 +334,16 @@ def generate_spectrogram(audio, fs):
     return f, t, Sxx_db
 
 def extract_constellation(S):
+    # 98th-percentile peak threshold: keeps the fingerprint sparse so the hosted
+    # database stays within the free-tier memory budget. MUST match the value the
+    # shipped song_database.pkl was indexed with, or query hashes will not line up.
     local_max = (maximum_filter(S, size=15) == S)
-    threshold = np.percentile(S, 95)
+    threshold = np.percentile(S, 98)
     peaks = (local_max & (S > threshold))
     fi, ti = np.where(peaks)
     return fi, ti
 
-def generate_hashes(freq_idx, time_idx, fan_out=5, target_zone=10):
+def generate_hashes(freq_idx, time_idx, fan_out=4, target_zone=10):
     hashes = []
     order = np.argsort(time_idx)
     freq_idx = freq_idx[order]
@@ -416,7 +424,7 @@ def get_song_thumbnail_data(song_name):
         return None, 0, 0.0
 
     try:
-        audio, fs = librosa.load(file_path, sr=None, mono=True)
+        audio, fs = librosa.load(file_path, sr=SR, mono=True)
         dur = len(audio) / fs
         f, t, S = generate_spectrogram(audio, fs)
         fi, ti = extract_constellation(S)
@@ -545,7 +553,7 @@ def render_song_deep_dive(song):
     if tab_audio is not None:
         with tab_audio:
             st.audio(audio_path)
-            audio_a, fs_a = librosa.load(audio_path, sr=None, mono=True)
+            audio_a, fs_a = librosa.load(audio_path, sr=SR, mono=True)
             st.caption(f"Live audio · {len(audio_a) / fs_a:.1f}s")
             _, _, S_a = generate_spectrogram(audio_a, fs_a)
             step_t = max(1, S_a.shape[1] // 800)
@@ -780,7 +788,7 @@ elif page == "🔍 Identify Song":
         # Step 0: Audio Loaded
         t0 = time.time()
         update_pipeline_tracker(tracker_placeholder, 0, step_times)
-        audio, fs = librosa.load(uploaded, sr=None, mono=True)
+        audio, fs = librosa.load(uploaded, sr=SR, mono=True)
         duration = len(audio) / fs
         t_audio = time.time() - t0
         step_times.append(t_audio)
@@ -1047,7 +1055,7 @@ elif page == "📦 Batch Processing":
         for idx, file in enumerate(uploaded_files):
             status_text.text(f"Processing: {file.name} ({idx+1}/{len(uploaded_files)})")
 
-            audio, fs = librosa.load(file, sr=None, mono=True)
+            audio, fs = librosa.load(file, sr=SR, mono=True)
             f, t, S = generate_spectrogram(audio, fs)
             fi, ti = extract_constellation(S)
             hashes = generate_hashes(fi, ti)
