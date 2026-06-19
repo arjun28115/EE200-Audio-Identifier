@@ -689,24 +689,33 @@ elif page == "📊 Database Analytics":
         theme_fig(fig_pie)
         st.plotly_chart(fig_pie, use_container_width=True)
 
-    if 'selected_song' not in st.session_state:
-        st.session_state.selected_song = songs[0] if songs else None
+    if songs and ('selected_song' not in st.session_state
+                  or st.session_state.selected_song not in songs):
+        st.session_state.selected_song = songs[0]
+
+    def _pick_song(song):
+        st.session_state.selected_song = song
 
     with col_chart2:
         st.markdown("### Indexed Track Library")
-        st.caption("Click a row to analyse that track.")
         df_songs = pd.DataFrame(songs, columns=["Track Name"])
-        event = st.dataframe(
-            df_songs, use_container_width=True, height=300,
-            hide_index=True, on_select="rerun", selection_mode="single-row"
-        )
-        sel_rows = event.selection.rows if event and event.selection else []
-        if sel_rows:
-            st.session_state.selected_song = songs[sel_rows[0]]
+        df_songs.index += 1
+        st.dataframe(df_songs, use_container_width=True, height=300)
+
+    # ---- Track selector + immediate deep-dive output ----
+    if songs:
+        st.markdown("---")
+        st.markdown("### 🔬 Analyze a Track")
+        st.caption("Pick a track (or click Analyze on a thumbnail below) to see its full breakdown.")
+
+        # selectbox is keyed to 'selected_song' so the card buttons can drive it
+        st.selectbox("Select a track to analyze", songs, key="selected_song")
+
+        render_song_deep_dive(st.session_state.selected_song)
 
     st.markdown("---")
     st.markdown("### Visual Database Index")
-    st.caption("Browse fingerprint thumbnails — click **Analyze** on any track for a full breakdown.")
+    st.caption("Browse fingerprint thumbnails — click **Analyze** to load a track into the panel above.")
 
     cols = st.columns(3)
     for i, song in enumerate(songs):
@@ -722,12 +731,8 @@ elif page == "📊 Database Analytics":
                     c_b.caption(f"🔗 {hash_count:,} hashes")
                 else:
                     st.caption("Audio file unavailable for thumbnail rendering.")
-                if st.button("🔍 Analyze", key=f"analyze_{i}", use_container_width=True):
-                    st.session_state.selected_song = song
-
-    # Deep-dive analysis for the currently selected track
-    if st.session_state.selected_song:
-        render_song_deep_dive(st.session_state.selected_song)
+                st.button("🔍 Analyze", key=f"analyze_{i}", use_container_width=True,
+                          on_click=_pick_song, args=(song,))
 
 
 # ------------------------------------------
