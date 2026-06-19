@@ -348,12 +348,29 @@ def identify_song(query_hashes):
 # 3. GLOBAL STATE & DATA INITIALIZATION
 # ==========================================
 SONG_FOLDER = r"songs"
-try:
-    songs = [os.path.splitext(f)[0] for f in os.listdir(SONG_FOLDER)]
-except FileNotFoundError:
-    songs = []
 
 database = load_database()
+
+
+def list_songs():
+    """Prefer the local songs/ folder; otherwise derive the track list from the
+    database so the index is never empty on a deployment without audio files."""
+    try:
+        folder_songs = [os.path.splitext(f)[0] for f in os.listdir(SONG_FOLDER)
+                        if not f.startswith('.')]
+        if folder_songs:
+            return sorted(folder_songs)
+    except FileNotFoundError:
+        pass
+    # Fallback: pull unique song names out of the database entries
+    names = set()
+    for matches in database.values():
+        for song, _ in matches:
+            names.add(song)
+    return sorted(names)
+
+
+songs = list_songs()
 total_entries = sum(len(v) for v in database.values()) if database else 0
 avg_matches = (total_entries / len(database)) if len(database) > 0 else 0
 
