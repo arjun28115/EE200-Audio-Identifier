@@ -867,6 +867,20 @@ elif page == "🔍 Identify Song":
             st.error("❌ No matching song found in the database. Try a cleaner clip or add to the index.")
             st.stop()
 
+        # Apply the same confidence gate as batch mode: a real match needs enough
+        # aligned-offset votes AND a clear lead over the runner-up. Otherwise the
+        # clip is almost certainly not in the library (noise / unindexed song).
+        prediction, _ = decide_prediction(rankings)
+        if prediction == "none":
+            closest, closest_score = rankings[0]
+            st.warning(
+                f"🛑 **No confident match.** The closest candidate (*{closest}*, only "
+                f"{closest_score} aligned hashes) does not clear the confidence threshold "
+                f"(≥ {MIN_ALIGNED_VOTES} aligned votes **and** ≥ {RUNNER_UP_RATIO:.0f}× the runner-up). "
+                "This clip is most likely not in the database — e.g. noise or an unindexed song."
+            )
+            st.stop()
+
         best_song = rankings[0][0]
         best_score = rankings[0][1]
         confidence = (best_score / max(sum(song_scores.values()), 1)) * 100 if len(rankings) > 1 else 100.0
