@@ -463,10 +463,18 @@ def render_song_deep_dive(song):
     m3.metric("Timeline Span", f"{int(span):,} frames")
     m4.metric("Avg Δt (fan-out)", f"{dt.mean():.2f}")
 
-    tab_c, tab_f, tab_dt, tab_tl, tab_audio = st.tabs([
-        "✨ Constellation", "🎚 Frequency Profile", "⏱ Δt Distribution",
-        "📈 Hash Timeline", "🎧 Audio Analysis"
-    ])
+    # Only offer the audio tab when the raw file is actually available on disk
+    audio_path = os.path.join(SONG_FOLDER, f"{song}.wav")
+    if not os.path.exists(audio_path):
+        alt = os.path.join(SONG_FOLDER, f"{song}.mp3")
+        audio_path = alt if os.path.exists(alt) else None
+
+    tab_labels = ["✨ Constellation", "🎚 Frequency Profile", "⏱ Δt Distribution", "📈 Hash Timeline"]
+    if audio_path:
+        tab_labels.append("🎧 Audio Analysis")
+    tabs = st.tabs(tab_labels)
+    tab_c, tab_f, tab_dt, tab_tl = tabs[0], tabs[1], tabs[2], tabs[3]
+    tab_audio = tabs[4] if audio_path else None
 
     with tab_c:
         st.caption("Anchor-point constellation reconstructed from stored hashes.")
@@ -511,14 +519,11 @@ def render_song_deep_dive(song):
         theme_fig(fig_tl)
         st.plotly_chart(fig_tl, use_container_width=True)
 
-    with tab_audio:
-        fig_thumb, hash_count, duration = get_song_thumbnail_data(song)
-        if fig_thumb is not None:
-            st.caption(f"Live audio reconstruction · {duration:.1f}s · {hash_count:,} hashes")
-            file_path = os.path.join(SONG_FOLDER, f"{song}.wav")
-            if not os.path.exists(file_path):
-                file_path = os.path.join(SONG_FOLDER, f"{song}.mp3")
-            audio_a, fs_a = librosa.load(file_path, sr=None, mono=True)
+    if tab_audio is not None:
+        with tab_audio:
+            st.audio(audio_path)
+            audio_a, fs_a = librosa.load(audio_path, sr=None, mono=True)
+            st.caption(f"Live audio · {len(audio_a) / fs_a:.1f}s")
             _, _, S_a = generate_spectrogram(audio_a, fs_a)
             step_t = max(1, S_a.shape[1] // 800)
             step_f = max(1, S_a.shape[0] // 400)
@@ -528,9 +533,6 @@ def render_song_deep_dive(song):
             fig_sp.update_layout(autosize=True, height=380)
             theme_fig(fig_sp)
             st.plotly_chart(fig_sp, use_container_width=True)
-        else:
-            st.info("🎧 Raw audio file not deployed for this track — the analysis above is "
-                    "reconstructed entirely from the fingerprint database.")
 
 # FEATURE 5 HELPER: Dynamic Pipeline Tracker
 def update_pipeline_tracker(placeholder, current_step, step_times):
