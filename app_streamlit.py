@@ -32,6 +32,29 @@ INK = "#E2E8F0"
 MUTED = "#94A3B8"
 COLORWAY = [ACCENT_CYAN, ACCENT_MINT, ACCENT_VIOLET, ACCENT_AMBER, ACCENT_ROSE]
 
+# ---- Match-confidence thresholds (tune these to taste) ----
+# A clip is reported as "none" unless the winning track clears BOTH gates:
+MIN_ALIGNED_VOTES = 10   # min hashes that agree on a single time-offset
+RUNNER_UP_RATIO = 2.0    # winner must beat 2nd place by at least this factor
+
+
+def decide_prediction(rankings):
+    """Return (prediction, top_score) applying the none-threshold.
+
+    `rankings` is a sorted list of (song, aligned_vote_score), best first.
+    Mirrors the demo: a real match has many aligned votes and a large lead
+    over the runner-up; otherwise we abstain with 'none'.
+    """
+    if not rankings:
+        return "none", 0
+    top_song, top_score = rankings[0]
+    runner_up = rankings[1][1] if len(rankings) > 1 else 0
+    if top_score < MIN_ALIGNED_VOTES:
+        return "none", top_score
+    if runner_up > 0 and top_score < RUNNER_UP_RATIO * runner_up:
+        return "none", top_score
+    return top_song, top_score
+
 
 def theme_fig(fig, height=None):
     """Apply one consistent dark, transparent theme to every Plotly figure."""
@@ -1032,13 +1055,12 @@ elif page == "📦 Batch Processing":
 
             scores = {song: max(offsets.values()) for song, offsets in votes.items()}
             rankings = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-            prediction = rankings[0][0] if rankings else "Unknown"
-            top_score = rankings[0][1] if rankings else 0
+            prediction, top_score = decide_prediction(rankings)
 
             results.append({
-                "Filename": file.name,
-                "Prediction": prediction,
-                "Confidence Score": top_score,
+                "filename": file.name,
+                "prediction": prediction,
+                "Aligned Votes": top_score,
                 "Hashes Checked": len(hashes)
             })
 
@@ -1049,23 +1071,29 @@ elif page == "📦 Batch Processing":
         log_action(f"Batch processed {len(uploaded_files)} files.")
 
         df_batch = pd.DataFrame(results)
+        matched = (df_batch['prediction'] != 'none').sum()
+        none_count = len(df_batch) - matched
 
         c1, c2, c3 = st.columns(3)
-        success_rate = (len(df_batch[df_batch['Prediction'] != 'Unknown']) / len(df_batch)) * 100
-
         c1.metric("Throughput Speed", f"{(total_time / len(uploaded_files)):.2f}s / file")
-        c2.metric("Match Success Rate", f"{success_rate:.1f}%")
+        c2.metric("Matched / None", f"{matched} / {none_count}")
         c3.metric("Total Computations", f"{df_batch['Hashes Checked'].sum():,}")
 
-        st.markdown("### Results Summary")
-        st.dataframe(df_batch, use_container_width=True)
+        st.caption(f"{matched} / {len(df_batch)} clips matched to a track "
+                   f"({none_count} returned `none`).")
 
-        csv = df_batch.to_csv(index=False).encode('utf-8')
+        # On-screen view keeps the extra diagnostics...
+        st.markdown("### Results Summary")
+        st.dataframe(df_batch, use_container_width=True, hide_index=True)
+
+        # ...but the exported file is exactly the grader format: filename,prediction
+        export_df = df_batch[["filename", "prediction"]]
+        csv = export_df.to_csv(index=False).encode('utf-8')
 
         st.download_button(
-            label="⬇️ Download Batch Analytics Report (CSV)",
+            label="⬇️ Download results.csv",
             data=csv,
-            file_name=f"audioAI_batch_results_{datetime.now().strftime('%Y%m%d')}.csv",
+            file_name="results.csv",
             mime="text/csv",
             use_container_width=True
         )
